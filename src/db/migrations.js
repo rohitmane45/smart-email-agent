@@ -1,8 +1,13 @@
-import { exec, run, queryOne, getDb, saveDb } from './database.js';
+import { exec, run, queryOne } from './database.js';
 
-export function runMigrations() {
-  exec(`
-    CREATE TABLE IF NOT EXISTS accounts (
+/**
+ * Run all database migrations against Turso/libSQL.
+ * Safe to run on every startup — uses CREATE TABLE IF NOT EXISTS.
+ */
+export async function runMigrations() {
+  // Create all tables
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
       refresh_token TEXT NOT NULL,
@@ -12,9 +17,8 @@ export function runMigrations() {
       is_active INTEGER DEFAULT 1,
       added_at TEXT DEFAULT (datetime('now')),
       last_checked_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS emails (
+    )`,
+    `CREATE TABLE IF NOT EXISTS emails (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id INTEGER NOT NULL,
       message_id TEXT UNIQUE NOT NULL,
@@ -35,9 +39,8 @@ export function runMigrations() {
       processed_at TEXT DEFAULT (datetime('now')),
       received_at TEXT,
       FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS calendar_events (
+    )`,
+    `CREATE TABLE IF NOT EXISTS calendar_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email_id INTEGER,
       account_id INTEGER NOT NULL,
@@ -51,9 +54,8 @@ export function runMigrations() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL,
       FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS reply_queue (
+    )`,
+    `CREATE TABLE IF NOT EXISTS reply_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email_id INTEGER NOT NULL,
       account_id INTEGER NOT NULL,
@@ -66,9 +68,8 @@ export function runMigrations() {
       actioned_at TEXT,
       FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE,
       FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS notifications (
+    )`,
+    `CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       channel TEXT NOT NULL,
@@ -77,26 +78,19 @@ export function runMigrations() {
       sent_at TEXT DEFAULT (datetime('now')),
       status TEXT DEFAULT 'sent',
       FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
+    )`,
+    `CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at TEXT DEFAULT (datetime('now'))
-    );
-  `);
+    )`,
+  ];
 
-  // Migrate existing databases FIRST — must happen before index creation
-  // so that is_read column exists before we try to index it.
-  try {
-    getDb().run('ALTER TABLE emails ADD COLUMN is_read INTEGER DEFAULT 0');
-    saveDb();
-    console.log('  ℹ️  Migrated: added is_read column to emails table');
-  } catch {
-    // Column already exists — that's fine, no action needed
+  for (const sql of tables) {
+    await exec(sql);
   }
 
-  // Create indexes separately (sql.js doesn't support multiple statements well in all cases)
+  // Create indexes
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account_id)',
     'CREATE INDEX IF NOT EXISTS idx_emails_importance ON emails(importance)',
@@ -107,10 +101,10 @@ export function runMigrations() {
   ];
 
   for (const idx of indexes) {
-    exec(idx);
+    await exec(idx);
   }
 
-  // Insert default settings
+  // Insert default settings if not present
   const defaults = {
     check_interval_hours: '3',
     max_emails_per_check: '15',
@@ -123,9 +117,9 @@ export function runMigrations() {
   };
 
   for (const [key, value] of Object.entries(defaults)) {
-    const existing = queryOne('SELECT key FROM settings WHERE key = ?', [key]);
+    const existing = await queryOne('SELECT key FROM settings WHERE key = ?', [key]);
     if (!existing) {
-      run('INSERT INTO settings (key, value) VALUES (?, ?)', [key, value]);
+      await run('INSERT INTO settings (key, value) VALUES (?, ?)', [key, value]);
     }
   }
 

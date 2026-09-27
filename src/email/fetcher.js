@@ -13,7 +13,7 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
     const gmail = await getGmailClient(accountId);
 
     // Get the last checked time for this account
-    const account = queryOne('SELECT last_checked_at FROM accounts WHERE id = ?', [accountId]);
+    const account = await queryOne('SELECT last_checked_at FROM accounts WHERE id = ?', [accountId]);
 
     // Build query — fetch ALL emails (read OR unread, any category) after the
     // last check.  We rely solely on message_id dedup in the DB so we never
@@ -41,7 +41,7 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
     if (messages.length === 0) {
       console.log(`📭 No new emails for account ${accountId}`);
       // Still update last_checked_at so next run has a fresh window
-      run('UPDATE accounts SET last_checked_at = datetime("now") WHERE id = ?', [accountId]);
+      await run('UPDATE accounts SET last_checked_at = datetime("now") WHERE id = ?', [accountId]);
       return [];
     }
 
@@ -51,7 +51,7 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
     const parsedEmails = [];
     for (const msg of messages) {
       // Dedup: skip if we already processed this message
-      const existing = queryOne('SELECT id FROM emails WHERE message_id = ?', [msg.id]);
+      const existing = await queryOne('SELECT id FROM emails WHERE message_id = ?', [msg.id]);
       if (existing) continue;
 
       try {
@@ -69,7 +69,7 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
     }
 
     // Update last checked timestamp
-    run('UPDATE accounts SET last_checked_at = datetime("now") WHERE id = ?', [accountId]);
+    await run('UPDATE accounts SET last_checked_at = datetime("now") WHERE id = ?', [accountId]);
 
     if (parsedEmails.length === 0) {
       console.log(`📭 All ${messages.length} email(s) already processed for account ${accountId}`);
@@ -97,8 +97,8 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
 /**
  * Save a processed email to the database.
  */
-export function saveEmail(email, analysis) {
-  run(
+export async function saveEmail(email, analysis) {
+  await run(
     `INSERT OR IGNORE INTO emails 
       (account_id, message_id, thread_id, subject, sender_email, sender_name, recipient, snippet, body_text, importance, category, is_urgent, is_calendar_event, is_read, brief_summary, ai_analysis, received_at) 
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -111,7 +111,7 @@ export function saveEmail(email, analysis) {
       email.senderName,
       email.recipient,
       email.snippet,
-      email.bodyText?.substring(0, 5000) || '', // Limit body size
+      email.bodyText?.substring(0, 5000) || '',
       analysis.importance || 'low',
       analysis.category || 'other',
       analysis.isUrgent ? 1 : 0,
@@ -123,15 +123,14 @@ export function saveEmail(email, analysis) {
     ]
   );
 
-  // Return the saved email's DB id
-  const saved = queryOne('SELECT id FROM emails WHERE message_id = ?', [email.messageId]);
+  const saved = await queryOne('SELECT id FROM emails WHERE message_id = ?', [email.messageId]);
   return saved?.id;
 }
 
 /**
  * Get recent emails from the database with optional filters.
  */
-export function getRecentEmails(limit = 50, filters = {}) {
+export async function getRecentEmails(limit = 50, filters = {}) {
   let sql = `SELECT e.*, a.email as account_email FROM emails e 
     JOIN accounts a ON e.account_id = a.id WHERE 1=1`;
   const params = [];

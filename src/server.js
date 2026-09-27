@@ -21,7 +21,6 @@ export function createServer() {
   // AUTH ROUTES
   // ═══════════════════════════════════════════
 
-  /** Start OAuth flow to add a new Gmail account */
   app.get('/auth/add-account', (req, res) => {
     try {
       const authUrl = getAuthUrl();
@@ -31,13 +30,9 @@ export function createServer() {
     }
   });
 
-  /** OAuth callback — exchanges code for tokens */
   app.get('/auth/callback', async (req, res) => {
     const { code } = req.query;
-    if (!code) {
-      return res.status(400).json({ error: 'Missing authorization code' });
-    }
-
+    if (!code) return res.status(400).json({ error: 'Missing authorization code' });
     try {
       const account = await handleAuthCallback(code);
       res.redirect(`/?success=Account ${account.email} connected!`);
@@ -51,11 +46,9 @@ export function createServer() {
   // API ROUTES
   // ═══════════════════════════════════════════
 
-  /** Get all connected accounts */
-  app.get('/api/accounts', (req, res) => {
+  app.get('/api/accounts', async (req, res) => {
     try {
-      const accounts = getActiveAccounts();
-      // Don't expose tokens to the frontend
+      const accounts = await getActiveAccounts();
       const safe = accounts.map(({ refresh_token, access_token, ...rest }) => rest);
       res.json(safe);
     } catch (error) {
@@ -63,21 +56,19 @@ export function createServer() {
     }
   });
 
-  /** Remove (deactivate) an account */
-  app.delete('/api/accounts/:id', (req, res) => {
+  app.delete('/api/accounts/:id', async (req, res) => {
     try {
-      deactivateAccount(parseInt(req.params.id));
+      await deactivateAccount(parseInt(req.params.id));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Get recent analyzed emails */
-  app.get('/api/emails', (req, res) => {
+  app.get('/api/emails', async (req, res) => {
     try {
       const { limit, importance, accountId, urgent } = req.query;
-      const emails = getRecentEmails(
+      const emails = await getRecentEmails(
         parseInt(limit) || 50,
         {
           importance: importance || undefined,
@@ -91,37 +82,33 @@ export function createServer() {
     }
   });
 
-  /** Get created calendar events */
-  app.get('/api/events', (req, res) => {
+  app.get('/api/events', async (req, res) => {
     try {
-      const events = getCreatedEvents(parseInt(req.query.limit) || 20);
+      const events = await getCreatedEvents(parseInt(req.query.limit) || 20);
       res.json(events);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Get pending reply queue */
-  app.get('/api/queue', (req, res) => {
+  app.get('/api/queue', async (req, res) => {
     try {
-      const pending = getPendingReplies();
+      const pending = await getPendingReplies();
       res.json(pending);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Get all reply history */
-  app.get('/api/replies', (req, res) => {
+  app.get('/api/replies', async (req, res) => {
     try {
-      const replies = getAllReplies(parseInt(req.query.limit) || 50);
+      const replies = await getAllReplies(parseInt(req.query.limit) || 50);
       res.json(replies);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Approve a queued reply */
   app.post('/api/queue/:id/approve', async (req, res) => {
     try {
       const success = await approveReply(parseInt(req.params.id));
@@ -131,54 +118,51 @@ export function createServer() {
     }
   });
 
-  /** Reject a queued reply */
-  app.post('/api/queue/:id/reject', (req, res) => {
+  app.post('/api/queue/:id/reject', async (req, res) => {
     try {
-      rejectReply(parseInt(req.params.id));
+      await rejectReply(parseInt(req.params.id));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Edit a queued reply */
-  app.post('/api/queue/:id/edit', (req, res) => {
+  app.post('/api/queue/:id/edit', async (req, res) => {
     try {
       const { text } = req.body;
       if (!text) return res.status(400).json({ error: 'Missing reply text' });
-      editReply(parseInt(req.params.id), text);
+      await editReply(parseInt(req.params.id), text);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Get dashboard statistics */
-  app.get('/api/stats', (req, res) => {
+  app.get('/api/stats', async (req, res) => {
     try {
-      const totalEmails = queryOne('SELECT COUNT(*) as count FROM emails')?.count || 0;
-      const criticalEmails = queryOne("SELECT COUNT(*) as count FROM emails WHERE importance = 'critical'")?.count || 0;
-      const highEmails = queryOne("SELECT COUNT(*) as count FROM emails WHERE importance = 'high'")?.count || 0;
-      const totalEvents = queryOne('SELECT COUNT(*) as count FROM calendar_events')?.count || 0;
-      const pendingReplies = queryOne("SELECT COUNT(*) as count FROM reply_queue WHERE status IN ('pending', 'edited')")?.count || 0;
-      const sentReplies = queryOne("SELECT COUNT(*) as count FROM reply_queue WHERE status = 'sent'")?.count || 0;
-      const totalAccounts = queryOne('SELECT COUNT(*) as count FROM accounts WHERE is_active = 1')?.count || 0;
-
+      const [te, ce, he, ev, pr, sr, ta] = await Promise.all([
+        queryOne('SELECT COUNT(*) as count FROM emails'),
+        queryOne("SELECT COUNT(*) as count FROM emails WHERE importance = 'critical'"),
+        queryOne("SELECT COUNT(*) as count FROM emails WHERE importance = 'high'"),
+        queryOne('SELECT COUNT(*) as count FROM calendar_events'),
+        queryOne("SELECT COUNT(*) as count FROM reply_queue WHERE status IN ('pending', 'edited')"),
+        queryOne("SELECT COUNT(*) as count FROM reply_queue WHERE status = 'sent'"),
+        queryOne('SELECT COUNT(*) as count FROM accounts WHERE is_active = 1'),
+      ]);
       res.json({
-        totalEmails,
-        criticalEmails,
-        highEmails,
-        totalEvents,
-        pendingReplies,
-        sentReplies,
-        totalAccounts,
+        totalEmails: te?.count || 0,
+        criticalEmails: ce?.count || 0,
+        highEmails: he?.count || 0,
+        totalEvents: ev?.count || 0,
+        pendingReplies: pr?.count || 0,
+        sentReplies: sr?.count || 0,
+        totalAccounts: ta?.count || 0,
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Get Telegram bot connection status */
   app.get('/api/telegram/status', (req, res) => {
     try {
       const status = getTelegramStatus();
@@ -188,10 +172,9 @@ export function createServer() {
     }
   });
 
-  /** Get/update settings */
-  app.get('/api/settings', (req, res) => {
+  app.get('/api/settings', async (req, res) => {
     try {
-      const settings = queryAll('SELECT * FROM settings');
+      const settings = await queryAll('SELECT * FROM settings');
       const obj = {};
       settings.forEach((s) => (obj[s.key] = s.value));
       res.json(obj);
@@ -200,11 +183,11 @@ export function createServer() {
     }
   });
 
-  app.post('/api/settings', (req, res) => {
+  app.post('/api/settings', async (req, res) => {
     try {
       const updates = req.body;
       for (const [key, value] of Object.entries(updates)) {
-        run(
+        await run(
           "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
           [key, String(value)]
         );
@@ -215,26 +198,21 @@ export function createServer() {
     }
   });
 
-  /** Manually trigger email check */
   app.post('/api/check-now', async (req, res) => {
     try {
       res.json({ message: 'Email check started' });
-      // Run pipeline in background
       runPipeline().catch((err) => console.error('Manual pipeline error:', err));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  /** Re-analyze existing emails that were misclassified and notify if upgraded */
   app.post('/api/reanalyze', async (req, res) => {
     try {
-      // Import dynamically to avoid circular deps at top level
       const { analyzeEmail } = await import('./ai/analyzer.js');
       const { notifyImportantEmail } = await import('./notifications/notifier.js');
 
-      // Fetch emails that were saved as 'other' or 'medium' (likely misclassified)
-      const candidates = queryAll(
+      const candidates = await queryAll(
         `SELECT e.*, a.email as account_email FROM emails e
          JOIN accounts a ON e.account_id = a.id
          WHERE e.importance IN ('other', 'medium', 'low')
@@ -243,7 +221,6 @@ export function createServer() {
 
       res.json({ message: `Re-analyzing ${candidates.length} emails in background...`, count: candidates.length });
 
-      // Run in background
       (async () => {
         let upgraded = 0;
         for (const row of candidates) {
@@ -262,9 +239,8 @@ export function createServer() {
 
             const analysis = await analyzeEmail(email);
 
-            // Only update + notify if importance was upgraded
             if (analysis.importance === 'critical' || analysis.importance === 'high') {
-              run(
+              await run(
                 `UPDATE emails SET importance = ?, category = ?, is_urgent = ?, brief_summary = ?, ai_analysis = ? WHERE id = ?`,
                 [
                   analysis.importance,
@@ -281,7 +257,6 @@ export function createServer() {
               upgraded++;
             }
 
-            // Delay between API calls
             await new Promise((r) => setTimeout(r, 800));
           } catch (err) {
             console.error(`⚠️ Re-analyze error for "${row.subject}":`, err.message);
@@ -294,7 +269,6 @@ export function createServer() {
     }
   });
 
-  /** Serve the dashboard for all non-API routes */
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
   });

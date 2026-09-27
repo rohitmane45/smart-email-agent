@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "sql.js": "^1.11.0",
+    "@libsql/client": "^0.18.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
-    "node-cron": "^3.0.3"
+    "groq-sdk": "^1.6.0",
+    "node-cron": "^3.0.3",
+    "sql.js": "^1.11.0"
   }
 }

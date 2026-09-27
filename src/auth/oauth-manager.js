@@ -46,15 +46,15 @@ export async function handleAuthCallback(code) {
   const displayName = userInfo.data.name || email;
 
   // Check if account already exists
-  const existing = queryOne('SELECT id FROM accounts WHERE email = ?', [email]);
+  const existing = await queryOne('SELECT id FROM accounts WHERE email = ?', [email]);
 
   if (existing) {
-    run(
+    await run(
       `UPDATE accounts SET refresh_token = ?, access_token = ?, token_expiry = ?, display_name = ?, is_active = 1 WHERE email = ?`,
       [tokens.refresh_token, tokens.access_token, tokens.expiry_date, displayName, email]
     );
   } else {
-    run(
+    await run(
       `INSERT INTO accounts (email, refresh_token, access_token, token_expiry, display_name) VALUES (?, ?, ?, ?, ?)`,
       [email, tokens.refresh_token, tokens.access_token, tokens.expiry_date, displayName]
     );
@@ -68,7 +68,7 @@ export async function handleAuthCallback(code) {
  * Get an authenticated OAuth2 client for a specific account.
  */
 export async function getAuthClientForAccount(accountId) {
-  const account = queryOne('SELECT * FROM accounts WHERE id = ? AND is_active = 1', [accountId]);
+  const account = await queryOne('SELECT * FROM accounts WHERE id = ? AND is_active = 1', [accountId]);
 
   if (!account) {
     throw new Error(`Account ${accountId} not found or inactive`);
@@ -86,7 +86,7 @@ export async function getAuthClientForAccount(accountId) {
     run(
       'UPDATE accounts SET access_token = ?, token_expiry = ? WHERE id = ?',
       [tokens.access_token, tokens.expiry_date, accountId]
-    );
+    ).catch(() => {}); // fire-and-forget inside event handler
   });
 
   return client;
@@ -111,15 +111,15 @@ export async function getCalendarClient(accountId) {
 /**
  * Get all active accounts from the database.
  */
-export function getActiveAccounts() {
+export async function getActiveAccounts() {
   return queryAll('SELECT * FROM accounts WHERE is_active = 1');
 }
 
 /**
  * Remove (deactivate) an account.
  */
-export function deactivateAccount(accountId) {
-  run('UPDATE accounts SET is_active = 0 WHERE id = ?', [accountId]);
+export async function deactivateAccount(accountId) {
+  await run('UPDATE accounts SET is_active = 0 WHERE id = ?', [accountId]);
 }
 
 export default {

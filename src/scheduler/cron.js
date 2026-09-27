@@ -19,14 +19,14 @@ export async function runPipeline() {
   console.log(`🔄 Email check started at ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
   console.log('🔄 ════════════════════════════════════════════\n');
 
-  const accounts = getActiveAccounts();
+  const accounts = await getActiveAccounts();
   if (accounts.length === 0) {
     console.log('⚠️ No active accounts. Add an account via the dashboard.');
     return;
   }
 
   const maxEmails = parseInt(
-    queryOne("SELECT value FROM settings WHERE key = 'max_emails_per_check'")?.value || '15'
+    (await queryOne("SELECT value FROM settings WHERE key = 'max_emails_per_check'"))?.value || '15'
   );
 
   let totalProcessed = 0;
@@ -68,7 +68,7 @@ export async function runPipeline() {
 
     for (const { email, analysis } of analysisResults) {
       // Step 3: Save to database
-      const emailId = saveEmail(email, analysis);
+      const emailId = await saveEmail(email, analysis);
       if (!emailId) continue;
 
       totalProcessed++;
@@ -99,7 +99,7 @@ export async function runPipeline() {
 
       // Step 6: Queue auto-replies
       if (analysis.suggestedReply && !analysis.needsHumanReply) {
-        const queued = queueReply(emailId, account.id, email, analysis.suggestedReply);
+        const queued = await queueReply(emailId, account.id, email, analysis.suggestedReply);
         if (queued) {
           totalReplies++;
           await notifyReplyApproval({

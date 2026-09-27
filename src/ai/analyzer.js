@@ -1,19 +1,28 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getGeminiApiKey, markCurrentKeyRateLimited } from '../auth/credentials.js';
 import { SYSTEM_PROMPT, ANALYSIS_PROMPT } from './prompts.js';
+import { analyzeWithGroq } from './groq-client.js';
+
+/**
+ * Check if Groq provider should be used.
+ */
+function shouldUseGroq() {
+  const provider = (process.env.AI_PROVIDER || '').toLowerCase();
+  return provider === 'groq' || Boolean(process.env.GROQ_API_KEY);
+}
 
 /**
  * Create a fresh Gemini model using the currently active API key.
  * Called fresh each time so key rotation takes effect immediately.
  */
-function createModel() {
+function createGeminiModel() {
   const apiKey = getGeminiApiKey();
   const genAI = new GoogleGenerativeAI(apiKey);
   return genAI.getGenerativeModel({
-    model: 'gemini-3.6-flash',
+    model: 'gemini-1.5-flash',
     generationConfig: {
       responseMimeType: 'application/json',
-      temperature: 0.3, // Low temperature for consistent analysis
+      temperature: 0.3,
     },
   });
 }
@@ -33,8 +42,33 @@ function isRateLimitError(error) {
 }
 
 /**
- * Analyze a single email using Gemini AI.
- * Automatically retries with the next API key if rate-limited.
+ * Analyze email using Gemini with key rotation.
+ */
+async function analyzeWithGemini(contents, email) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const model = createGeminiModel();
+      const result = await model.generateContent({ contents });
+      const responseText = result.response.text();
+      return JSON.parse(responseText);
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        console.warn(`⚠️ Gemini rate limit hit on attempt ${attempt + 1}. Rotating API key...`);
+        const newKey = markCurrentKeyRateLimited();
+        if (!newKey || attempt === 1) {
+          throw new Error('All Gemini API keys are rate-limited');
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('Max retries exceeded for Gemini');
+}
+
+/**
+ * Analyze a single email using configured AI provider (Groq or Gemini).
  * @param {object} email - Parsed email object.
  * @returns {object} AI analysis result.
  */
@@ -49,41 +83,32 @@ export async function analyzeEmail(email) {
     .replace('{DATE}', email.date || 'Unknown')
     .replace('{BODY}', (email.bodyText || email.snippet || '').substring(0, 3000));
 
-  const contents = [
-    { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userPrompt }] },
-  ];
+  let rawAnalysis = null;
 
-  // Try up to 2 times — once with current key, once after rotating to next key
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // 1. Try Groq if enabled
+  if (shouldUseGroq()) {
     try {
-      const model = createModel();
-      const result = await model.generateContent({ contents });
-      const responseText = result.response.text();
-      const analysis = JSON.parse(responseText);
-      const normalized = normalizeAnalysis(analysis);
-      // Always apply keyword override — AI can be wrong
-      return applyKeywordOverride(normalized, email);
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        console.warn(`⚠️ Rate limit hit on attempt ${attempt + 1}. Rotating API key...`);
-        const newKey = markCurrentKeyRateLimited();
-        if (!newKey || attempt === 1) {
-          // All keys exhausted — return safe default but still apply keyword override
-          console.error('❌ All API keys rate-limited. Skipping analysis for this email.');
-          return applyKeywordOverride(buildDefaultAnalysis(email, 'All Gemini API keys are rate-limited'), email);
-        }
-        // Small wait before retry with new key
-        await new Promise((r) => setTimeout(r, 1000));
-        continue;
-      }
-
-      // Non-rate-limit error — still apply keyword override on default
-      console.error('❌ AI analysis failed:', error.message);
-      return applyKeywordOverride(buildDefaultAnalysis(email, error.message), email);
+      rawAnalysis = await analyzeWithGroq(systemPrompt, userPrompt);
+    } catch (err) {
+      console.warn(`⚠️ Groq analysis failed (${err.message}). Trying Gemini fallback...`);
     }
   }
 
-  return applyKeywordOverride(buildDefaultAnalysis(email, 'Max retries exceeded'), email);
+  // 2. Fallback to Gemini if Groq didn't succeed
+  if (!rawAnalysis) {
+    try {
+      const contents = [
+        { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userPrompt }] },
+      ];
+      rawAnalysis = await analyzeWithGemini(contents, email);
+    } catch (err) {
+      console.error('❌ AI analysis failed on all providers:', err.message);
+      return applyKeywordOverride(buildDefaultAnalysis(email, err.message), email);
+    }
+  }
+
+  const normalized = normalizeAnalysis(rawAnalysis);
+  return applyKeywordOverride(normalized, email);
 }
 
 /**

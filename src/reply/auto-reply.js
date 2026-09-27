@@ -3,21 +3,17 @@ import { run, queryAll, queryOne } from '../db/database.js';
 
 /**
  * Queue an auto-reply for approval.
- * @param {number} emailId - The source email's DB id.
- * @param {number} accountId - The Gmail account id.
- * @param {object} email - The original email data.
- * @param {string} suggestedReply - AI-generated reply text.
  */
-export function queueReply(emailId, accountId, email, suggestedReply) {
+export async function queueReply(emailId, accountId, email, suggestedReply) {
   if (!suggestedReply) return null;
 
-  run(
+  await run(
     `INSERT INTO reply_queue (email_id, account_id, original_subject, original_sender, draft_reply)
      VALUES (?, ?, ?, ?, ?)`,
     [emailId, accountId, email.subject, email.senderEmail, suggestedReply]
   );
 
-  const queued = queryOne(
+  const queued = await queryOne(
     'SELECT * FROM reply_queue WHERE email_id = ? ORDER BY id DESC LIMIT 1',
     [emailId]
   );
@@ -28,11 +24,9 @@ export function queueReply(emailId, accountId, email, suggestedReply) {
 
 /**
  * Approve and send a queued reply.
- * @param {number} queueId - The reply queue entry ID.
- * @returns {boolean} Whether the reply was sent successfully.
  */
 export async function approveReply(queueId) {
-  const entry = queryOne('SELECT * FROM reply_queue WHERE id = ?', [queueId]);
+  const entry = await queryOne('SELECT * FROM reply_queue WHERE id = ?', [queueId]);
   if (!entry) throw new Error('Reply not found in queue');
   if (entry.status === 'sent') throw new Error('Reply already sent');
 
@@ -40,12 +34,9 @@ export async function approveReply(queueId) {
 
   try {
     const gmail = await getGmailClient(entry.account_id);
-
-    // Get the original email to properly thread the reply
-    const originalEmail = queryOne('SELECT * FROM emails WHERE id = ?', [entry.email_id]);
+    const originalEmail = await queryOne('SELECT * FROM emails WHERE id = ?', [entry.email_id]);
     if (!originalEmail) throw new Error('Original email not found');
 
-    // Build the email reply
     const rawEmail = buildReplyEmail(
       entry.original_sender,
       originalEmail.recipient || '',
@@ -55,7 +46,6 @@ export async function approveReply(queueId) {
       originalEmail.thread_id
     );
 
-    // Send via Gmail API
     await gmail.users.messages.send({
       userId: 'me',
       resource: {
@@ -64,8 +54,7 @@ export async function approveReply(queueId) {
       },
     });
 
-    // Update status
-    run(
+    await run(
       "UPDATE reply_queue SET status = 'sent', actioned_at = datetime('now') WHERE id = ?",
       [queueId]
     );
@@ -74,7 +63,7 @@ export async function approveReply(queueId) {
     return true;
   } catch (error) {
     console.error('❌ Failed to send reply:', error.message);
-    run(
+    await run(
       "UPDATE reply_queue SET status = 'pending', actioned_at = datetime('now') WHERE id = ?",
       [queueId]
     );
@@ -85,8 +74,8 @@ export async function approveReply(queueId) {
 /**
  * Reject a queued reply.
  */
-export function rejectReply(queueId) {
-  run(
+export async function rejectReply(queueId) {
+  await run(
     "UPDATE reply_queue SET status = 'rejected', actioned_at = datetime('now') WHERE id = ?",
     [queueId]
   );
@@ -96,8 +85,8 @@ export function rejectReply(queueId) {
 /**
  * Edit a queued reply's text, then mark it ready for approval.
  */
-export function editReply(queueId, editedText) {
-  run(
+export async function editReply(queueId, editedText) {
+  await run(
     "UPDATE reply_queue SET edited_reply = ?, status = 'edited', actioned_at = datetime('now') WHERE id = ?",
     [editedText, queueId]
   );
@@ -107,7 +96,7 @@ export function editReply(queueId, editedText) {
 /**
  * Get all pending replies.
  */
-export function getPendingReplies() {
+export async function getPendingReplies() {
   return queryAll(
     `SELECT rq.*, a.email as account_email FROM reply_queue rq
      JOIN accounts a ON rq.account_id = a.id
@@ -119,7 +108,7 @@ export function getPendingReplies() {
 /**
  * Get all replies (for dashboard history).
  */
-export function getAllReplies(limit = 50) {
+export async function getAllReplies(limit = 50) {
   return queryAll(
     `SELECT rq.*, a.email as account_email FROM reply_queue rq
      JOIN accounts a ON rq.account_id = a.id
@@ -133,7 +122,6 @@ export function getAllReplies(limit = 50) {
  */
 function buildReplyEmail(to, from, subject, body, inReplyTo, threadId) {
   const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
-
   const email = [
     `To: ${to}`,
     `Subject: ${replySubject}`,
@@ -145,7 +133,6 @@ function buildReplyEmail(to, from, subject, body, inReplyTo, threadId) {
     body,
   ].join('\r\n');
 
-  // Encode to base64url
   return Buffer.from(email)
     .toString('base64')
     .replace(/\+/g, '-')
@@ -153,11 +140,4 @@ function buildReplyEmail(to, from, subject, body, inReplyTo, threadId) {
     .replace(/=+$/, '');
 }
 
-export default {
-  queueReply,
-  approveReply,
-  rejectReply,
-  editReply,
-  getPendingReplies,
-  getAllReplies,
-};
+export default { queueReply, approveReply, rejectReply, editReply, getPendingReplies, getAllReplies };

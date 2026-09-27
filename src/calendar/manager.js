@@ -55,7 +55,7 @@ export async function createCalendarEvent(accountId, emailId, eventDetails) {
     const createdEvent = res.data;
 
     // Save to our database
-    run(
+    await run(
       `INSERT INTO calendar_events (email_id, account_id, calendar_event_id, summary, description, start_time, end_time, location, reminders) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -120,7 +120,7 @@ export async function createUrgentCalendarEvent(accountId, emailId, eventDetails
       sendNotifications: true,
     });
 
-    run(
+    await run(
       `INSERT INTO calendar_events (email_id, account_id, calendar_event_id, summary, description, start_time, end_time, location, reminders)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -147,7 +147,7 @@ export async function createUrgentCalendarEvent(accountId, emailId, eventDetails
 /**
  * Get upcoming calendar events created by this agent.
  */
-export function getCreatedEvents(limit = 20) {
+export async function getCreatedEvents(limit = 20) {
   return queryAll(
     `SELECT ce.*, a.email as account_email FROM calendar_events ce
      JOIN accounts a ON ce.account_id = a.id
