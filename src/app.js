@@ -86,6 +86,21 @@ async function main() {
     // Step 5: Start the email checking scheduler
     startScheduler(settings.checkIntervalHours);
 
+    // Step 6: Keep-alive ping for Render free tier
+    // Render free tier spins down after 15 min of inactivity — ping every 10 min to prevent it
+    const renderUrl = process.env.RENDER_EXTERNAL_URL || process.env.GOOGLE_REDIRECT_URI?.replace('/auth/callback', '');
+    if (renderUrl && renderUrl.includes('onrender.com')) {
+      setInterval(async () => {
+        try {
+          const res = await fetch(`${renderUrl}/api/stats`);
+          console.log(`💓 Keep-alive ping → ${res.status === 200 ? 'OK' : res.status}`);
+        } catch (err) {
+          console.warn('⚠️ Keep-alive ping failed:', err.message);
+        }
+      }, 10 * 60 * 1000); // every 10 minutes
+      console.log('💓 Keep-alive pinger started (every 10 min) — Render free tier will stay awake');
+    }
+
     // Graceful shutdown
     const shutdown = () => {
       console.log('\n🛑 Shutting down gracefully...');
