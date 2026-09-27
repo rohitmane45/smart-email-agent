@@ -41,7 +41,7 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
     if (messages.length === 0) {
       console.log(`📭 No new emails for account ${accountId}`);
       // Still update last_checked_at so next run has a fresh window
-      await run('UPDATE accounts SET last_checked_at = datetime("now") WHERE id = ?', [accountId]);
+      await run("UPDATE accounts SET last_checked_at = datetime('now') WHERE id = ?", [accountId]);
       return [];
     }
 
@@ -69,7 +69,7 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
     }
 
     // Update last checked timestamp
-    await run('UPDATE accounts SET last_checked_at = datetime("now") WHERE id = ?', [accountId]);
+    await run("UPDATE accounts SET last_checked_at = datetime('now') WHERE id = ?", [accountId]);
 
     if (parsedEmails.length === 0) {
       console.log(`📭 All ${messages.length} email(s) already processed for account ${accountId}`);
