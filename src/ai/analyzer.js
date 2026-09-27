@@ -1,0 +1,244 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getGeminiApiKey, markCurrentKeyRateLimited } from '../auth/credentials.js';
+import { SYSTEM_PROMPT, ANALYSIS_PROMPT } from './prompts.js';
+
+/**
+ * Create a fresh Gemini model using the currently active API key.
+ * Called fresh each time so key rotation takes effect immediately.
+ */
+function createModel() {
+  const apiKey = getGeminiApiKey();
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI.getGenerativeModel({
+    model: 'gemini-3.6-flash',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.3, // Low temperature for consistent analysis
+    },
+  });
+}
+
+/**
+ * Check if an error is a rate limit (429) error from Gemini.
+ */
+function isRateLimitError(error) {
+  const msg = error.message || '';
+  return (
+    error.status === 429 ||
+    msg.includes('429') ||
+    msg.toLowerCase().includes('quota') ||
+    msg.toLowerCase().includes('rate limit') ||
+    msg.toLowerCase().includes('resource_exhausted')
+  );
+}
+
+/**
+ * Analyze a single email using Gemini AI.
+ * Automatically retries with the next API key if rate-limited.
+ * @param {object} email - Parsed email object.
+ * @returns {object} AI analysis result.
+ */
+export async function analyzeEmail(email) {
+  const today = new Date().toISOString().split('T')[0];
+  const systemPrompt = SYSTEM_PROMPT.replace('{TODAY_DATE}', today);
+
+  const userPrompt = ANALYSIS_PROMPT
+    .replace('{SENDER_NAME}', email.senderName || 'Unknown')
+    .replace('{SENDER_EMAIL}', email.senderEmail || 'unknown@email.com')
+    .replace('{SUBJECT}', email.subject || '(no subject)')
+    .replace('{DATE}', email.date || 'Unknown')
+    .replace('{BODY}', (email.bodyText || email.snippet || '').substring(0, 3000));
+
+  const contents = [
+    { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userPrompt }] },
+  ];
+
+  // Try up to 2 times — once with current key, once after rotating to next key
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const model = createModel();
+      const result = await model.generateContent({ contents });
+      const responseText = result.response.text();
+      const analysis = JSON.parse(responseText);
+      const normalized = normalizeAnalysis(analysis);
+      // Always apply keyword override — AI can be wrong
+      return applyKeywordOverride(normalized, email);
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        console.warn(`⚠️ Rate limit hit on attempt ${attempt + 1}. Rotating API key...`);
+        const newKey = markCurrentKeyRateLimited();
+        if (!newKey || attempt === 1) {
+          // All keys exhausted — return safe default but still apply keyword override
+          console.error('❌ All API keys rate-limited. Skipping analysis for this email.');
+          return applyKeywordOverride(buildDefaultAnalysis(email, 'All Gemini API keys are rate-limited'), email);
+        }
+        // Small wait before retry with new key
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+
+      // Non-rate-limit error — still apply keyword override on default
+      console.error('❌ AI analysis failed:', error.message);
+      return applyKeywordOverride(buildDefaultAnalysis(email, error.message), email);
+    }
+  }
+
+  return applyKeywordOverride(buildDefaultAnalysis(email, 'Max retries exceeded'), email);
+}
+
+/**
+ * Analyze multiple emails in batch.
+ * @param {Array} emails - Array of parsed email objects.
+ * @returns {Array} Array of { email, analysis } objects.
+ */
+export async function analyzeEmails(emails) {
+  const results = [];
+
+  for (const email of emails) {
+    console.log(`🤖 Analyzing: "${email.subject}" from ${email.senderEmail}`);
+    const analysis = await analyzeEmail(email);
+    results.push({ email, analysis });
+
+    // Small delay between calls to be kind to API rate limits
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  }
+
+  return results;
+}
+
+/**
+ * Normalize and validate the AI analysis result.
+ */
+function normalizeAnalysis(analysis) {
+  const validImportance = ['critical', 'high', 'medium', 'low'];
+  const validCategories = ['placement', 'hackathon', 'job_application', 'meeting', 'deadline', 'academic', 'personal', 'work', 'newsletter', 'notification', 'other'];
+
+  return {
+    importance: validImportance.includes(analysis.importance) ? analysis.importance : 'medium',
+    category: validCategories.includes(analysis.category) ? analysis.category : 'other',
+    isCalendarEvent: Boolean(analysis.isCalendarEvent),
+    isUrgent: Boolean(analysis.isUrgent),
+    eventDetails: analysis.isCalendarEvent && analysis.eventDetails ? {
+      summary: analysis.eventDetails.summary || 'Untitled Event',
+      description: analysis.eventDetails.description || '',
+      startTime: analysis.eventDetails.startTime || null,
+      endTime: analysis.eventDetails.endTime || null,
+      location: analysis.eventDetails.location || '',
+    } : null,
+    suggestedReply: analysis.suggestedReply || null,
+    needsHumanReply: Boolean(analysis.needsHumanReply),
+    briefSummary: analysis.briefSummary || 'No summary available',
+  };
+}
+
+/**
+ * Return a safe default analysis when AI is unavailable.
+ */
+function buildDefaultAnalysis(email, reason) {
+  return {
+    importance: 'medium',
+    category: 'other',
+    isCalendarEvent: false,
+    isUrgent: false,
+    eventDetails: null,
+    suggestedReply: null,
+    needsHumanReply: false,
+    briefSummary: email.subject || `Could not analyze email (${reason})`,
+  };
+}
+
+/**
+ * Hard keyword override — runs after AI analysis to catch placement/T&P emails
+ * that the AI may have missed. Checks sender name, sender email, and subject
+ * against a curated list of critical placement keywords.
+ * @param {object} analysis - The AI analysis result.
+ * @param {object} email - The original email object.
+ * @returns {object} Updated analysis with corrected importance/category if matched.
+ */
+function applyKeywordOverride(analysis, email) {
+  const sender = (email.senderName || '').toLowerCase();
+  const senderEmail = (email.senderEmail || '').toLowerCase();
+  const subject = (email.subject || '').toLowerCase();
+  const body = (email.bodyText || email.snippet || '').toLowerCase();
+
+  // --- CRITICAL sender names (exact or partial match) ---
+  const criticalSenders = [
+    'placement execution',
+    'placement executive',
+    'pod cell',
+    'pod',
+    't&p cell',
+    'tp cell',
+    'tpo',
+    'placement cell',
+    'training and placement',
+    'training & placement',
+    'placement office',
+    'placement officer',
+    'career services',
+    'campus recruitment',
+  ];
+
+  const isCriticalSender = criticalSenders.some((kw) => sender.includes(kw));
+
+  // --- CRITICAL subject keywords ---
+  const criticalSubjectKeywords = [
+    'reporting time',
+    'test instructions',
+    'you are eligible',
+    'campus hiring',
+    'register for the same',
+    'shortlisted',
+    'selected for',
+    'offer letter',
+    'placement drive',
+    'drive result',
+    'pod result',
+    'campus placement',
+    'interview schedule',
+    'next round',
+    'assessment link',
+    'placement notification',
+    'company visit',
+    'pre-placement talk',
+    'pre placement talk',
+    'ppt —',
+    'internship — you are eligible',
+    'invitation for campus',
+  ];
+
+  const hasCriticalSubject = criticalSubjectKeywords.some((kw) => subject.includes(kw));
+
+  // --- HIGH-importance sender domains (company recruiters) ---
+  const companyDomains = [
+    'rockwellautomation.com', 'godaddy.com', 'google.com', 'microsoft.com',
+    'amazon.com', 'infosys.com', 'tcs.com', 'wipro.com', 'accenture.com',
+    'cognizant.com', 'capgemini.com', 'deloitte.com', 'ibm.com',
+  ];
+  const isCompanyRecruiter = companyDomains.some((d) => senderEmail.endsWith(d));
+
+  if (isCriticalSender || hasCriticalSubject) {
+    const wasDowngraded = analysis.importance !== 'critical';
+    if (wasDowngraded) {
+      console.log(`🔄 Keyword override: upgrading "${email.subject}" from ${analysis.importance} → CRITICAL (sender: "${email.senderName}")`);
+    }
+    return {
+      ...analysis,
+      importance: 'critical',
+      category: 'placement',
+      isUrgent: true,
+      needsHumanReply: true,
+      suggestedReply: null,
+      briefSummary: analysis.briefSummary || subject,
+    };
+  }
+
+  if (isCompanyRecruiter && analysis.importance === 'other' || isCompanyRecruiter && analysis.importance === 'low') {
+    console.log(`🔄 Keyword override: upgrading company recruiter email to HIGH`);
+    return { ...analysis, importance: 'high', category: 'job_application' };
+  }
+
+  return analysis;
+}
+
+export default { analyzeEmail, analyzeEmails };

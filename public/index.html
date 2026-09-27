@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Smart Email Agent — AI-powered email management dashboard with calendar integration, Telegram notifications, and auto-replies">
+  <title>Smart Email Agent — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <!-- Ambient Background -->
+  <div class="ambient-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- Header -->
+  <header id="header">
+    <div class="header-content">
+      <div class="logo">
+        <div class="logo-icon">📧</div>
+        <div>
+          <h1>Smart Email Agent</h1>
+          <p class="tagline">AI-Powered Email Intelligence</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="status-indicators">
+          <div class="status-dot" id="telegram-status-dot" title="Telegram">
+            <span class="dot disconnected"></span>
+            <span class="status-label">Telegram</span>
+          </div>
+          <div class="status-dot" id="agent-status-dot" title="Agent">
+            <span class="dot connected"></span>
+            <span class="status-label">Agent</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btn-check-now" onclick="checkNow()">
+          <span class="btn-icon">🔄</span> Check Now
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation -->
+  <nav id="nav">
+    <button class="nav-btn active" data-section="overview" onclick="switchSection('overview')">
+      <span class="nav-icon">📊</span> Overview
+    </button>
+    <button class="nav-btn" data-section="accounts" onclick="switchSection('accounts')">
+      <span class="nav-icon">👤</span> Accounts
+    </button>
+    <button class="nav-btn" data-section="emails" onclick="switchSection('emails')">
+      <span class="nav-icon">📬</span> Emails
+    </button>
+    <button class="nav-btn" data-section="events" onclick="switchSection('events')">
+      <span class="nav-icon">📅</span> Calendar
+    </button>
+    <button class="nav-btn" data-section="replies" onclick="switchSection('replies')">
+      <span class="nav-icon">✉️</span> Replies
+      <span class="badge" id="reply-badge" style="display:none">0</span>
+    </button>
+    <button class="nav-btn" data-section="settings" onclick="switchSection('settings')">
+      <span class="nav-icon">⚙️</span> Settings
+    </button>
+  </nav>
+
+  <!-- Main Content -->
+  <main id="main">
+
+    <!-- ═══ Overview Section ═══ -->
+    <section id="section-overview" class="section active">
+      <div class="stats-grid">
+        <div class="stat-card gradient-blue">
+          <div class="stat-icon">📧</div>
+          <div class="stat-info">
+            <span class="stat-number" id="stat-total-emails">0</span>
+            <span class="stat-label">Emails Analyzed</span>
+          </div>
+        </div>
+        <div class="stat-card gradient-red">
+          <div class="stat-icon">🔴</div>
+          <div class="stat-info">
+            <span class="stat-number" id="stat-critical">0</span>
+            <span class="stat-label">Critical</span>
+          </div>
+        </div>
+        <div class="stat-card gradient-orange">
+          <div class="stat-icon">🟠</div>
+          <div class="stat-info">
+            <span class="stat-number" id="stat-high">0</span>
+            <span class="stat-label">High Priority</span>
+          </div>
+        </div>
+        <div class="stat-card gradient-green">
+          <div class="stat-icon">📅</div>
+          <div class="stat-info">
+            <span class="stat-number" id="stat-events">0</span>
+            <span class="stat-label">Events Created</span>
+          </div>
+        </div>
+        <div class="stat-card gradient-purple">
+          <div class="stat-icon">✉️</div>
+          <div class="stat-info">
+            <span class="stat-number" id="stat-pending">0</span>
+            <span class="stat-label">Pending Replies</span>
+          </div>
+        </div>
+        <div class="stat-card gradient-teal">
+          <div class="stat-icon">👤</div>
+          <div class="stat-info">
+            <span class="stat-number" id="stat-accounts">0</span>
+            <span class="stat-label">Accounts</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="content-grid">
+        <div class="card">
+          <div class="card-header">
+            <h2>🔥 Recent Important Emails</h2>
+          </div>
+          <div class="card-body" id="recent-emails-list">
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <p>No emails analyzed yet</p>
+              <p class="muted">Connect a Gmail account to get started</p>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2>📅 Recent Calendar Events</h2>
+          </div>
+          <div class="card-body" id="recent-events-list">
+            <div class="empty-state">
+              <div class="empty-icon">📅</div>
+              <p>No events created yet</p>
+              <p class="muted">Events will appear when detected in emails</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Accounts Section ═══ -->
+    <section id="section-accounts" class="section">
+      <div class="section-header">
+        <h2>Connected Gmail Accounts</h2>
+        <a href="/auth/add-account" class="btn btn-primary">
+          <span class="btn-icon">➕</span> Add Account
+        </a>
+      </div>
+      <div class="accounts-grid" id="accounts-list">
+        <div class="empty-state">
+          <div class="empty-icon">👤</div>
+          <p>No accounts connected</p>
+          <p class="muted">Click "Add Account" to connect your Gmail</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Emails Section ═══ -->
+    <section id="section-emails" class="section">
+      <div class="section-header">
+        <h2>Analyzed Emails</h2>
+        <div class="filter-bar">
+          <select id="filter-importance" onchange="loadEmails()">
+            <option value="">All Priorities</option>
+            <option value="critical">🔴 Critical</option>
+            <option value="high">🟠 High</option>
+            <option value="medium">🟡 Medium</option>
+            <option value="low">🟢 Low</option>
+          </select>
+        </div>
+      </div>
+      <div class="email-list" id="emails-list">
+        <div class="empty-state">
+          <div class="empty-icon">📬</div>
+          <p>No emails found</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Calendar Section ═══ -->
+    <section id="section-events" class="section">
+      <div class="section-header">
+        <h2>Calendar Events Created</h2>
+      </div>
+      <div class="events-list" id="events-list">
+        <div class="empty-state">
+          <div class="empty-icon">📅</div>
+          <p>No events yet</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Replies Section ═══ -->
+    <section id="section-replies" class="section">
+      <div class="section-header">
+        <h2>Auto-Reply Queue</h2>
+      </div>
+      <div class="replies-list" id="replies-list">
+        <div class="empty-state">
+          <div class="empty-icon">✉️</div>
+          <p>No pending replies</p>
+          <p class="muted">AI-suggested replies will appear here for your approval</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Settings Section ═══ -->
+    <section id="section-settings" class="section">
+      <div class="section-header">
+        <h2>Agent Settings</h2>
+      </div>
+      <div class="settings-grid">
+        <div class="card settings-card">
+          <div class="card-header"><h3>⏰ Scheduling</h3></div>
+          <div class="card-body">
+            <div class="setting-row">
+              <label>Check Interval (hours)</label>
+              <input type="number" id="setting-interval" min="1" max="24" value="3">
+            </div>
+            <div class="setting-row">
+              <label>Max Emails Per Check</label>
+              <input type="number" id="setting-max-emails" min="1" max="50" value="15">
+            </div>
+          </div>
+        </div>
+        <div class="card settings-card">
+          <div class="card-header"><h3>🔔 Notifications</h3></div>
+          <div class="card-body">
+            <div class="setting-row">
+              <label>Notify on Critical</label>
+              <label class="toggle"><input type="checkbox" id="setting-notify-critical" checked><span class="slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <label>Notify on High</label>
+              <label class="toggle"><input type="checkbox" id="setting-notify-high" checked><span class="slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <label>Notify on Medium</label>
+              <label class="toggle"><input type="checkbox" id="setting-notify-medium"><span class="slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <label>Notify on Low</label>
+              <label class="toggle"><input type="checkbox" id="setting-notify-low"><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+        <div class="card settings-card">
+          <div class="card-header"><h3>📨 Telegram Bot</h3></div>
+          <div class="card-body">
+            <div id="telegram-section">
+              <div class="whatsapp-status" id="tg-status-display">
+                <span class="dot disconnected"></span>
+                <span>Checking...</span>
+              </div>
+              <p class="muted" style="margin-top:12px">To set up Telegram notifications:</p>
+              <ol style="color:var(--text-secondary);font-size:13px;padding-left:18px;margin-top:8px;line-height:2">
+                <li>Message <strong>@BotFather</strong> on Telegram → /newbot</li>
+                <li>Get your bot token and add to .env</li>
+                <li>Message your bot, then get your chat_id</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+        <div class="card settings-card">
+          <div class="card-header"><h3>✉️ Auto-Reply</h3></div>
+          <div class="card-body">
+            <div class="setting-row">
+              <label>Enable Auto-Reply Suggestions</label>
+              <label class="toggle"><input type="checkbox" id="setting-auto-reply" checked><span class="slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <label>Reply Language</label>
+              <select id="setting-language">
+                <option value="english" selected>English</option>
+                <option value="hindi">Hindi</option>
+                <option value="hinglish">Hinglish</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-primary" onclick="saveSettings()">
+          <span class="btn-icon">💾</span> Save Settings
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Reply Edit Modal -->
+  <div class="modal-overlay" id="edit-modal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>✏️ Edit Reply</h3>
+        <button class="modal-close" onclick="closeEditModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-info" id="edit-modal-info"></div>
+        <textarea id="edit-reply-text" rows="8" placeholder="Edit the reply..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitEditedReply()">Save & Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
