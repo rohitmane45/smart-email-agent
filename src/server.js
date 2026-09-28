@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import session from 'express-session';
 import { getAuthUrl, handleAuthCallback, getActiveAccounts, deactivateAccount } from './auth/oauth-manager.js';
 import { getRecentEmails } from './email/fetcher.js';
 import { getCreatedEvents } from './calendar/manager.js';
@@ -11,14 +12,77 @@ import { queryAll, queryOne, run } from './db/database.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'smart-email-agent-secret-key-change-me';
+
+// ── Auth middleware ─────────────────────────────────────────
+function requireAuth(req, res, next) {
+  // If no password set, skip auth (backwards compat / local dev)
+  if (!DASHBOARD_PASSWORD) return next();
+  if (req.session && req.session.authenticated) return next();
+  // API calls get 401, page requests get login page
+  if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
+    return res.status(401).json({ error: 'Unauthorized. Please log in at the dashboard.' });
+  }
+  return res.sendFile(path.join(__dirname, '..', 'public', 'login.html'));
+}
+
 export function createServer() {
   const app = express();
 
   app.use(express.json());
+
+  // Session setup
+  app.use(session({
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 8 * 60 * 60 * 1000, // 8 hours
+      httpOnly: true,
+      secure: false, // set true if behind HTTPS proxy
+    }
+  }));
+
+  // Static assets (CSS, fonts, login.html) — always public
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   // ═══════════════════════════════════════════
-  // AUTH ROUTES
+  // LOGIN / LOGOUT ROUTES (no auth required)
+  // ═══════════════════════════════════════════
+
+  app.post('/login', (req, res) => {
+    const { password } = req.body;
+    if (!DASHBOARD_PASSWORD) {
+      // No password configured — auto-login
+      req.session.authenticated = true;
+      return res.json({ success: true });
+    }
+    if (password === DASHBOARD_PASSWORD) {
+      req.session.authenticated = true;
+      return res.json({ success: true });
+    }
+    return res.status(401).json({ error: 'Incorrect password.' });
+  });
+
+  app.get('/logout', (req, res) => {
+    req.session.destroy(() => {
+      res.redirect('/');
+    });
+  });
+
+  app.get('/api/auth/status', (req, res) => {
+    res.json({
+      authenticated: !DASHBOARD_PASSWORD || !!(req.session && req.session.authenticated),
+      passwordRequired: !!DASHBOARD_PASSWORD,
+    });
+  });
+
+  // Apply auth guard to everything below
+  app.use(requireAuth);
+
+  // ═══════════════════════════════════════════
+  // AUTH ROUTES (Google OAuth)
   // ═══════════════════════════════════════════
 
   app.get('/auth/add-account', (req, res) => {
