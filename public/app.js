@@ -429,18 +429,35 @@ async function checkNow() {
   btn.disabled = true;
   btn.innerHTML = '<span class="btn-icon">⏳</span> Checking...';
 
-  showToast('Email check started...', 'info');
+  showToast('Email check started — checking all accounts...', 'info');
   await api('/api/check-now', { method: 'POST' });
 
-  // Re-enable after a short delay
-  setTimeout(() => {
-    btn.disabled = false;
-    btn.innerHTML = '<span class="btn-icon">🔄</span> Check Now';
-    loadStats();
-    loadEmails();
-    loadEvents();
-    loadReplies();
-  }, 5000);
+  // Pipeline runs in background (30-90s for multiple accounts + AI analysis).
+  // Poll stats every 5s for up to 2 minutes so the UI updates when done.
+  let elapsed = 0;
+  const maxWait = 120000;
+  const pollInterval = 5000;
+  const previousTotal = parseInt(document.getElementById('stat-total-emails')?.textContent) || 0;
+
+  const poller = setInterval(async () => {
+    elapsed += pollInterval;
+    await loadStats();
+    const newTotal = parseInt(document.getElementById('stat-total-emails')?.textContent) || 0;
+    const done = newTotal > previousTotal || elapsed >= maxWait;
+    if (done) {
+      clearInterval(poller);
+      btn.disabled = false;
+      btn.innerHTML = '<span class="btn-icon">🔄</span> Check Now';
+      loadEmails();
+      loadEvents();
+      loadReplies();
+      if (newTotal > previousTotal) {
+        showToast('✅ Check complete! Found ' + (newTotal - previousTotal) + ' new email(s).', 'success');
+      } else {
+        showToast('✅ Check complete (no new emails found)', 'info');
+      }
+    }
+  }, pollInterval);
 }
 
 // ═══ Toast Notifications ═══

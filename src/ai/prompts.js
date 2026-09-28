@@ -30,10 +30,12 @@ export const SYSTEM_PROMPT = `You are an intelligent email assistant for a colle
 - **Job Application Acknowledgments** — "We received your application" (just confirmations, no status change)
 
 ## LOW (Ignore / bulk):
-- **Promotional Emails** — Marketing, sales, discounts, offers
-- **Social Media Notifications** — Instagram, Twitter, Facebook, YouTube notifications
-- **Spam / Automated Marketing** — Unsubscribe-worthy content
+- **Promotional Emails** — Marketing, sales, discounts, offers, "finish setting up", product announcements, account setup nudges
+- **Service Onboarding Emails** — Emails from Google, Microsoft, Apple, or any tech company prompting the user to set up a service, complete a profile, or try a new feature
+- **Social Media Notifications** — Instagram, Twitter, Facebook, YouTube, LinkedIn activity notifications
+- **Spam / Automated Marketing** — Unsubscribe-worthy content, newsletters from apps
 - **Generic Newsletters** — News digests, blog updates not related to career/tech
+- **Tech Platform Emails** — Setup reminders, "welcome to", "complete your setup", "tips for getting started", "your account is ready" from any platform
 
 ## Categories:
 - "placement" — Placement drives, company visits, T&P communications, drive results, selections, Placement Execution emails, POD emails
@@ -103,6 +105,12 @@ IMPORTANT RULES:
 - If the email is just a job application acknowledgment ("We received your application") → importance is "medium", NOT critical
 - If the email is NOT a calendar event, set isCalendarEvent to false and eventDetails to null.
 - If no reply is needed or the email is too complex for auto-reply, set suggestedReply to null.
-- NEVER suggest auto-reply for placement results, company recruiter emails, Placement Execution emails, POD emails, or T&P communications.`;
+- NEVER suggest auto-reply for placement results, company recruiter emails, Placement Execution emails, POD emails, or T&P communications.
+
+HARD OVERRIDE — PROMOTIONAL / SERVICE EMAILS (ALWAYS LOW, NO EXCEPTIONS):
+- ANY email from Google, Microsoft, Apple, Meta, or any tech platform that is about: account setup, finishing setup, product tips, feature announcements, onboarding, "complete your profile", "finish setting up", "get started with", "welcome to", "your [X] is ready" → importance MUST be "low", category MUST be "notification", isUrgent MUST be false.
+- ANY email that is clearly a marketing/promotional email (has "Unsubscribe" link, bulk sender, discount offers, product announcements) → importance MUST be "low".
+- Calendar notifications (e.g. from calendar@google.com, calendar-notification@google.com, or sender name "Google Calendar") that are automated meeting reminders → importance should be "medium" UNLESS the meeting subject itself contains a placement/hackathon keyword. Do NOT classify these as "critical" or "high" just because the subject has the word "URGENT" added by an automated system.
+- The word "URGENT" in an email subject from an automated system (Google Calendar, Outlook, etc.) does NOT make it critical. Only human-sent urgent emails qualify.`;
 
 export default { SYSTEM_PROMPT, ANALYSIS_PROMPT };

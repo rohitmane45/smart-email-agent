@@ -186,6 +186,59 @@ function applyKeywordOverride(analysis, email) {
   const subject = (email.subject || '').toLowerCase();
   const body = (email.bodyText || email.snippet || '').toLowerCase();
 
+  // --- PROMOTIONAL / SERVICE EMAIL GUARD --- 
+  // Prevent automated service/marketing emails from ever being escalated.
+  const promotionalSenderDomains = [
+    'accounts.google.com', 'no-reply@google.com', 'mail.google.com',
+    'calendar-notification@google.com', 'calendar@google.com',
+  ];
+  const promotionalSenderKeywords = [
+    'google', 'microsoft', 'apple', 'meta', 'facebook',
+    'linkedin', 'instagram', 'twitter', 'youtube',
+    'noreply', 'no-reply', 'notifications', 'do-not-reply', 'donotreply',
+  ];
+  const promotionalSubjectKeywords = [
+    'finish setting up', 'complete your setup', 'get started with', 'welcome to',
+    'your account is ready', 'tips for', 'try', 'unsubscribe',
+    'special offer', 'discount', 'sale ends', 'limited time', 'deal',
+  ];
+  const isPromotionalDomain = promotionalSenderDomains.some((d) => senderEmail.includes(d));
+  const isPromotionalSenderName = promotionalSenderKeywords.some((kw) => sender.includes(kw));
+  const isPromotionalSubject = promotionalSubjectKeywords.some((kw) => subject.includes(kw));
+  const hasUnsubscribe = body.includes('unsubscribe');
+
+  // If it's a known service sender AND (domain match OR promotional subject OR unsubscribe link), cap it at LOW
+  if (isPromotionalDomain || (isPromotionalSenderName && (isPromotionalSubject || hasUnsubscribe))) {
+    if (analysis.importance === 'critical' || analysis.importance === 'high') {
+      console.log(`🔒 Promo guard: capping "${email.subject}" from ${analysis.importance} → low (sender: "${email.senderName}")`);
+    }
+    return {
+      ...analysis,
+      importance: 'low',
+      isUrgent: false,
+    };
+  }
+
+  // Google Calendar automated notifications — keep as medium unless placement keyword
+  const isGoogleCalendarSender =
+    sender.includes('google calendar') ||
+    senderEmail.includes('calendar-notification@google.com') ||
+    senderEmail.includes('calendar@google.com');
+
+  if (isGoogleCalendarSender) {
+    // Only upgrade if the actual meeting/event is placement-related
+    const hasPlacementKeyword = [
+      'placement', 'internship', 'hackathon', 'interview', 'ppt', 'pod', 'drive', 't&p'
+    ].some((kw) => subject.includes(kw));
+
+    if (!hasPlacementKeyword) {
+      if (analysis.importance === 'critical' || analysis.importance === 'high') {
+        console.log(`🔒 Calendar guard: capping "${email.subject}" from ${analysis.importance} → medium`);
+      }
+      return { ...analysis, importance: 'medium', isUrgent: false };
+    }
+  }
+
   // --- CRITICAL sender names (exact or partial match) ---
   const criticalSenders = [
     'placement execution',

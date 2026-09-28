@@ -32,6 +32,8 @@ export async function runPipeline() {
   let totalProcessed = 0;
   let totalEvents = 0;
   let totalReplies = 0;
+  let criticalCount = 0;
+  let highCount = 0;
 
   for (const account of accounts) {
     console.log(`\n📧 Checking account: ${account.email}`);
@@ -73,6 +75,10 @@ export async function runPipeline() {
 
       totalProcessed++;
 
+      // Track importance counts
+      if (analysis.importance === 'critical') criticalCount++;
+      else if (analysis.importance === 'high') highCount++;
+
       console.log(
         `  ${getImportanceIcon(analysis.importance)} [${analysis.importance.toUpperCase()}] ${email.subject} — ${analysis.briefSummary}`
       );
@@ -113,6 +119,14 @@ export async function runPipeline() {
   }
 
   console.log(`\n✅ Pipeline complete: ${totalProcessed} emails, ${totalEvents} events, ${totalReplies} replies queued\n`);
+
+  return {
+    totalProcessed,
+    critical: criticalCount,
+    high: highCount,
+    eventsCreated: totalEvents,
+    repliesQueued: totalReplies,
+  };
 }
 
 /**

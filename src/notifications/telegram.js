@@ -287,7 +287,7 @@ export async function sendUrgentNotification(emailData) {
     `⏰ *Time:* ${escMd(timeStr)}\n` +
     `${viewedStatus}\n\n` +
     `📝 *Summary:* ${escMd(emailData.briefSummary || emailData.brief_summary || emailData.snippet || 'No summary available')}\n\n` +
-    `⚡ _Open the dashboard to view the full email\._`;
+    `⚡ _Open the dashboard to view the full email._`;
 
   return sendTelegramMessage(message);
 }
@@ -370,7 +370,11 @@ export async function verifyBot() {
 
 function escMd(text) {
   if (!text) return '';
-  return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+  // Telegram Markdown (v1) only requires escaping: _ * [ ] ( ) ~ ` > # + - = | { }
+  // Do NOT escape dots (.) or exclamation marks (!) — those only matter in MarkdownV2
+  return String(text)
+    .replace(/\\/g, '')       // strip stray backslashes first
+    .replace(/([_*`\[\]])/g, '\\$1');  // escape only v1 special chars
 }
 
 function formatDateTime(isoString) {
