@@ -104,6 +104,23 @@ export async function runMigrations() {
     await exec(idx);
   }
 
+  // ── Incremental migrations (safe to re-run on each startup) ──
+  // Add notified_at column to emails if it doesn't exist yet
+  try {
+    await exec(`ALTER TABLE emails ADD COLUMN notified_at TEXT`);
+    console.log('📦 Migration: added notified_at column to emails table');
+  } catch (e) {
+    // Column already exists — ignore
+  }
+
+  // Add calendar_notified_at to emails to prevent duplicate calendar event creation
+  try {
+    await exec(`ALTER TABLE emails ADD COLUMN calendar_notified_at TEXT`);
+    console.log('📦 Migration: added calendar_notified_at column to emails table');
+  } catch (e) {
+    // Column already exists — ignore
+  }
+
   // Insert default settings if not present
   const defaults = {
     check_interval_hours: '3',

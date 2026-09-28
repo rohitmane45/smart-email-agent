@@ -100,7 +100,7 @@ export async function runPipeline() {
 
       // Step 5: Send notifications for important emails
       if (analysis.importance === 'critical' || analysis.importance === 'high' || analysis.isUrgent) {
-        await notifyImportantEmail(email, analysis);
+        await notifyImportantEmail(email, analysis, emailId);
       }
 
       // Step 6: Queue auto-replies

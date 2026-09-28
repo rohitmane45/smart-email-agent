@@ -54,16 +54,28 @@ export async function notify(type, data, emailId = null) {
 
 /**
  * Send notification for an important email.
+ * Stamps notified_at so this NEVER fires twice for the same email.
  */
-export async function notifyImportantEmail(email, analysis) {
-  if (analysis.isUrgent || analysis.importance === 'critical' || analysis.importance === 'high') {
-    return notify('urgent_email', {
-      ...email,
-      briefSummary: analysis.briefSummary,
-      importance: analysis.importance,
-      isRead: email.isRead ?? false,
-    });
+export async function notifyImportantEmail(email, analysis, emailId = null) {
+  if (!analysis.isUrgent && analysis.importance !== 'critical' && analysis.importance !== 'high') return;
+
+  // Guard: if we have an emailId, check whether we already notified this email
+  if (emailId) {
+    const row = await queryOne('SELECT notified_at FROM emails WHERE id = ?', [emailId]);
+    if (row?.notified_at) {
+      console.log(`🔕 Notification already sent for email #${emailId} [“${email.subject}”] — skipping duplicate.`);
+      return;
+    }
+    // Stamp notified_at immediately to prevent race conditions
+    await run("UPDATE emails SET notified_at = datetime('now') WHERE id = ?", [emailId]);
   }
+
+  return notify('urgent_email', {
+    ...email,
+    briefSummary: analysis.briefSummary,
+    importance: analysis.importance,
+    isRead: email.isRead ?? false,
+  }, emailId);
 }
 
 /**
