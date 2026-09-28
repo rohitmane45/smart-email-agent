@@ -424,41 +424,74 @@ async function checkTelegramStatus() {
 }
 
 // ═══ Check Now ═══
+let _checkNowActive = false; // Prevent double-click from firing multiple pipelines
+
 async function checkNow() {
+  if (_checkNowActive) {
+    showToast('⏳ Already checking — please wait...', 'info');
+    return;
+  }
+  _checkNowActive = true;
+
   const btn = document.getElementById('btn-check-now');
   btn.disabled = true;
   btn.innerHTML = '<span class="btn-icon">⏳</span> Checking...';
 
-  showToast('Email check started — checking all accounts...', 'info');
-  await api('/api/check-now', { method: 'POST' });
+  // Fire check-now ONCE. Server will reject if pipeline already running.
+  const result = await api('/api/check-now', { method: 'POST' });
 
-  // Pipeline runs in background (30-90s for multiple accounts + AI analysis).
-  // Poll stats every 5s for up to 2 minutes so the UI updates when done.
-  let elapsed = 0;
-  const maxWait = 120000;
-  const pollInterval = 5000;
+  if (result?.alreadyRunning) {
+    showToast('⏳ A check is already in progress — waiting for it to finish...', 'info');
+  } else {
+    showToast('🔄 Email check started — checking all accounts...', 'info');
+  }
+
   const previousTotal = parseInt(document.getElementById('stat-total-emails')?.textContent) || 0;
+
+  // Poll pipeline-status every 3s. Once pipeline is done, refresh UI.
+  let elapsed = 0;
+  const maxWait = 150000; // 2.5 minutes max
+  const pollInterval = 3000;
 
   const poller = setInterval(async () => {
     elapsed += pollInterval;
-    await loadStats();
-    const newTotal = parseInt(document.getElementById('stat-total-emails')?.textContent) || 0;
-    const done = newTotal > previousTotal || elapsed >= maxWait;
-    if (done) {
+    try {
+      const status = await api('/api/pipeline-status');
+      const running = status?.running;
+
+      // Update stats every poll tick while running
+      await loadStats();
+
+      // Pipeline finished (or timed out)
+      if (!running || elapsed >= maxWait) {
+        clearInterval(poller);
+        _checkNowActive = false;
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔄</span> Check Now';
+
+        // Final UI refresh
+        await loadStats();
+        loadEmails();
+        loadEvents();
+        loadReplies();
+
+        const newTotal = parseInt(document.getElementById('stat-total-emails')?.textContent) || 0;
+        if (newTotal > previousTotal) {
+          showToast('✅ Check complete! Found ' + (newTotal - previousTotal) + ' new email(s).', 'success');
+        } else {
+          showToast('✅ Check complete (no new emails found).', 'info');
+        }
+      }
+    } catch (err) {
+      // Network error — stop polling
       clearInterval(poller);
+      _checkNowActive = false;
       btn.disabled = false;
       btn.innerHTML = '<span class="btn-icon">🔄</span> Check Now';
-      loadEmails();
-      loadEvents();
-      loadReplies();
-      if (newTotal > previousTotal) {
-        showToast('✅ Check complete! Found ' + (newTotal - previousTotal) + ' new email(s).', 'success');
-      } else {
-        showToast('✅ Check complete (no new emails found)', 'info');
-      }
     }
   }, pollInterval);
 }
+
 
 // ═══ Toast Notifications ═══
 function showToast(message, type = 'info') {

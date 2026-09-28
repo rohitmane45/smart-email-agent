@@ -7,7 +7,7 @@ import { getRecentEmails } from './email/fetcher.js';
 import { getCreatedEvents } from './calendar/manager.js';
 import { getPendingReplies, getAllReplies, approveReply, rejectReply, editReply } from './reply/auto-reply.js';
 import { getTelegramStatus } from './notifications/telegram.js';
-import { runPipeline } from './scheduler/cron.js';
+import { runPipeline, getPipelineStatus } from './scheduler/cron.js';
 import { queryAll, queryOne, run } from './db/database.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -262,9 +262,17 @@ export function createServer() {
     }
   });
 
+  app.get('/api/pipeline-status', (req, res) => {
+    res.json({ running: getPipelineStatus() });
+  });
+
   app.post('/api/check-now', async (req, res) => {
     try {
-      res.json({ message: 'Email check started' });
+      if (getPipelineStatus()) {
+        // Already running — tell the client to just keep polling stats
+        return res.json({ message: 'Pipeline already running', alreadyRunning: true });
+      }
+      res.json({ message: 'Email check started', alreadyRunning: false });
       runPipeline().catch((err) => console.error('Manual pipeline error:', err));
     } catch (error) {
       res.status(500).json({ error: error.message });

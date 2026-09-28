@@ -15,15 +15,6 @@ export async function createCalendarEvent(accountId, emailId, eventDetails) {
       return null;
     }
 
-    // Guard: never create a calendar event for the same email twice
-    if (emailId) {
-      const alreadyCreated = await queryOne('SELECT id FROM calendar_events WHERE email_id = ?', [emailId]);
-      if (alreadyCreated) {
-        console.log(`⏭️ Calendar event already exists for email #${emailId} — skipping duplicate.`);
-        return null;
-      }
-    }
-
     const calendar = await getCalendarClient(accountId);
 
     // Build event resource
@@ -47,7 +38,7 @@ export async function createCalendarEvent(accountId, emailId, eventDetails) {
       event.location = eventDetails.location;
     }
 
-    // Check for duplicate events on Google Calendar as secondary guard
+    // Check for duplicate events
     const isDuplicate = await checkDuplicate(calendar, event);
     if (isDuplicate) {
       console.log(`⏭️ Duplicate event skipped: "${event.summary}"`);
@@ -92,15 +83,6 @@ export async function createCalendarEvent(accountId, emailId, eventDetails) {
  * Create an urgent calendar event with more aggressive reminders.
  */
 export async function createUrgentCalendarEvent(accountId, emailId, eventDetails) {
-  // Guard: never create a calendar event for the same email twice
-  if (emailId) {
-    const alreadyCreated = await queryOne('SELECT id FROM calendar_events WHERE email_id = ?', [emailId]);
-    if (alreadyCreated) {
-      console.log(`⏭️ Calendar event already exists for email #${emailId} — skipping duplicate urgent event.`);
-      return null;
-    }
-  }
-
   // Override reminders with more aggressive ones for urgent events
   const urgentDetails = {
     ...eventDetails,

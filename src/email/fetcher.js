@@ -96,16 +96,8 @@ export async function fetchNewEmails(accountId, maxResults = 25) {
 
 /**
  * Save a processed email to the database.
- * Returns the email's DB id if it was NEW (just inserted), or null if it already existed.
  */
 export async function saveEmail(email, analysis) {
-  // First check if this email already exists in DB
-  const existing = await queryOne('SELECT id FROM emails WHERE message_id = ?', [email.messageId]);
-  if (existing) {
-    // Email was already processed — do NOT trigger notifications/calendar again
-    return null;
-  }
-
   await run(
     `INSERT OR IGNORE INTO emails 
       (account_id, message_id, thread_id, subject, sender_email, sender_name, recipient, snippet, body_text, importance, category, is_urgent, is_calendar_event, is_read, brief_summary, ai_analysis, received_at) 

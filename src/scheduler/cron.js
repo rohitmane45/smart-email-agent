@@ -9,12 +9,36 @@ import { queueReply } from '../reply/auto-reply.js';
 import { queryOne } from '../db/database.js';
 
 let cronJob = null;
+let isPipelineRunning = false; // Mutex: prevent concurrent pipeline runs
+
+/**
+ * Export the running state so /api/check-now can report it.
+ */
+export function getPipelineStatus() {
+  return isPipelineRunning;
+}
 
 /**
  * The main email processing pipeline.
  * Fetches → Analyzes → Creates Events → Notifies → Queues Replies.
+ * 
+ * MUTEX PROTECTED: only one instance runs at a time.
+ * Concurrent calls are silently dropped and return null.
  */
 export async function runPipeline() {
+  if (isPipelineRunning) {
+    console.log('⚠️ Pipeline already running — skipping concurrent trigger.');
+    return null;
+  }
+  isPipelineRunning = true;
+  try {
+    return await _runPipeline();
+  } finally {
+    isPipelineRunning = false;
+  }
+}
+
+async function _runPipeline() {
   console.log('\n🔄 ════════════════════════════════════════════');
   console.log(`🔄 Email check started at ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
   console.log('🔄 ════════════════════════════════════════════\n');
@@ -55,7 +79,7 @@ export async function runPipeline() {
             importance: 'critical',
             isUrgent: true,
             reAuthUrl,
-          }).catch(() => {});
+          }).catch(() => { });
         }
         console.error(`🔐 Account ${account.email} needs re-authentication: ${reAuthUrl}`);
         continue;
@@ -100,7 +124,7 @@ export async function runPipeline() {
 
       // Step 5: Send notifications for important emails
       if (analysis.importance === 'critical' || analysis.importance === 'high' || analysis.isUrgent) {
-        await notifyImportantEmail(email, analysis, emailId);
+        await notifyImportantEmail(email, analysis);
       }
 
       // Step 6: Queue auto-replies
